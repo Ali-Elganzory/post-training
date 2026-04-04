@@ -1,7 +1,5 @@
 import argparse
 
-from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -16,18 +14,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_configs_and_splits(dataset_name: str) -> dict[str, list[tuple[str, int]]]:
-    configs = get_dataset_config_names(dataset_name)
-    return {
-        config: [
-            (split, len(load_dataset(dataset_name, config, split=split)))
-            for split in get_dataset_split_names(dataset_name, config_name=config)
-        ]
-        for config in configs
-    }
-
-
 def list_configs_and_splits(dataset_name):
+    from post_training.data.utils import get_configs_and_splits
+
     print(f"--- Dataset: {dataset_name} ---")
     configs_and_splits = get_configs_and_splits(dataset_name)
     for config, splits in configs_and_splits.items():

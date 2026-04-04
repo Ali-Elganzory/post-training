@@ -63,16 +63,14 @@ class TrainingConfig:
     per_device_train_batch_size: int = 4
     warmup_ratio: float = 0.03
     lr_scheduler_type: str = "cosine_with_min_lr"
-    lr_scheduler_kwargs: LRSchedulerKwargs = field(default_factory=LRSchedulerKwargs)
+    lr_scheduler_kwargs: LRSchedulerKwargs | None = None
     adam_beta1: float = 0.9
     adam_beta2: float = 0.999
     weight_decay: float = 0.0
     adam_epsilon: float = 1e-8
 
     gradient_checkpointing: bool = True
-    gradient_checkpointing_kwargs: GradientCheckpointingKwargs = field(
-        default_factory=GradientCheckpointingKwargs
-    )
+    gradient_checkpointing_kwargs: GradientCheckpointingKwargs | None = None
     bf16: bool = True
     seed: int = 42
     use_liger_kernel: bool = True
@@ -135,6 +133,8 @@ class DataConfig:
     chat_template: str = "default"
     num_proc: int | None = None  # None = auto (capped at 32)
     datasets: list[DatasetEntry] = field(default_factory=list)
+    # Deterministic seed used for dataset shuffling and resampling.
+    seed: int = 42
 
 
 @dataclass
@@ -179,7 +179,8 @@ class ContainerConfig:
 class SlurmConfig:
     """SLURM job scheduler parameters."""
 
-    partition: str = "gpu"
+    account: str = "reformo"
+    partition: str = "booster"
     num_nodes: int = 1
     gpus_per_node: int = 4
     cpus_per_task: int = 32
@@ -222,7 +223,7 @@ class PostTrainingConfig:
     offline: bool = False
     backend: str = "trl"
     llamafactory: dict | None = None
-    container: ContainerConfig = field(default_factory=ContainerConfig)
+    container: ContainerConfig | None = None
 
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)

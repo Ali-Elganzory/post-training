@@ -5,6 +5,7 @@
 # ============================================================================
 
 #SBATCH --job-name={{ job_name }}
+#SBATCH --account={{ account }}
 #SBATCH --partition={{ partition }}
 #SBATCH --nodes={{ num_nodes }}
 #SBATCH --ntasks-per-node=1

@@ -2,45 +2,32 @@
 
 The main entry point is :func:`load_and_mix_datasets` which reads the
 ``data`` section of the config, loads each dataset, applies per-dataset
-transforms, and interleaves them according to the specified weights.
+transforms and filters, rescales each dataset according to its weight,
+then concatenates and shuffles the result.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from collections.abc import Callable
 from typing import TYPE_CHECKING
+from collections.abc import Callable
 
-from datasets import Dataset, interleave_datasets, load_dataset
+from datasets import Dataset, Features, concatenate_datasets, load_dataset
 
 from post_training.data.transforms import get_transform
+from post_training.data.utils import resample_to_size, resolve_num_proc
 
 if TYPE_CHECKING:
     from post_training.config import DataConfig
 
 logger = logging.getLogger(__name__)
 
-_MAX_NUM_PROC = 32
-
-
-def _resolve_num_proc(configured: int | None) -> int:
-    """Return the number of worker processes for ``.map()`` / ``.filter()``.
-
-    When *configured* is ``None`` (the default), auto-detect from
-    ``os.cpu_count()`` but cap at ``_MAX_NUM_PROC`` to avoid process
-    explosion on large HPC nodes.  An explicit value is still clamped to the
-    available CPU count so we never request more workers than cores.
-    """
-    available = os.cpu_count() or 1
-    if configured is not None:
-        return min(configured, available)
-    return min(available, _MAX_NUM_PROC)
-
 
 def load_and_mix_datasets(
     config: DataConfig,
     row_filter: Callable[[dict], bool] | None = None,
+    columns_to_keep: list[str] | None = None,
+    features: Features | None = None,
 ) -> Dataset:
     """Load, transform, and optionally filter/mix datasets.
 
@@ -53,18 +40,29 @@ def load_and_mix_datasets(
         rows.  Each training method passes its own filter (e.g. SFT
         checks ``messages``, DPO checks ``chosen`` / ``rejected``).
         When ``None``, no filtering is applied.
+    columns_to_keep:
+        Optional list of column names to retain in the final dataset(s).
+        When a transform is applied, all original columns are dropped and only the
+        transform outputs are kept. When no transform is applied, only the
+        columns listed here (that are present) are retained.
+    features:
+        Optional features schema to enforce on the dataset.
+        When a transform is applied, the features schema is enforced on the output.
+        When no transform is applied, the features schema is enforced on the input.
 
     Returns
     -------
     datasets.Dataset
-        A single (possibly interleaved) dataset ready for the trainer.
+        A single concatenated and shuffled dataset ready for the trainer.
     """
     entries = config.datasets
     if not entries:
         raise ValueError("No datasets specified in data.datasets.")
 
-    num_proc = _resolve_num_proc(config.num_proc)
+    num_proc = resolve_num_proc(config.num_proc)
     logger.info("Dataset processing will use num_proc=%d", num_proc)
+
+    seed = getattr(config, "seed", 42)
 
     loaded_datasets: list[Dataset] = []
     weights: list[float] = []
@@ -82,14 +80,12 @@ def load_and_mix_datasets(
             entry.transform,
         )
 
-        # Build kwargs for load_dataset, only passing optional params when set.
-        load_kwargs: dict = {}
-        if entry.data_dir is not None:
-            load_kwargs["data_dir"] = entry.data_dir
-        if entry.subset is not None:
-            load_kwargs["name"] = entry.subset
-
-        ds = load_dataset(entry.path, split=entry.split, **load_kwargs)
+        ds: Dataset = load_dataset(
+            entry.path,
+            data_dir=entry.data_dir,
+            name=entry.subset,
+            split=entry.split,
+        )
 
         # Apply optional per-dataset transform.
         if entry.transform is not None:
@@ -109,27 +105,53 @@ def load_and_mix_datasets(
                 entry.transform,
                 entry.name,
             )
-            ds = ds.map(transform_fn, num_proc=num_proc)
 
-        # Apply method-specific row filter (e.g. SFT checks for non-empty
-        # "messages", DPO checks for non-empty "chosen" / "rejected").
+            map_kwargs: dict = {"num_proc": num_proc}
+            if columns_to_keep is not None:
+                # Remove all columns except for the ones returned by the transform.
+                map_kwargs["remove_columns"] = ds.column_names
+            if features is not None:
+                # Enforce features schema
+                map_kwargs["features"] = features
+
+            ds = ds.map(transform_fn, **map_kwargs)
+        elif columns_to_keep is not None:
+            # No transform → keep only the requested columns that are present.
+            present = [c for c in columns_to_keep if c in ds.column_names]
+            if not present:
+                raise KeyError(
+                    f"None of the expected columns {columns_to_keep} were found in "
+                    f"dataset '{entry.name}'. Available columns: {ds.column_names}"
+                )
+            ds = ds.select_columns(present)
+
         if row_filter is not None:
             ds = ds.filter(row_filter, num_proc=num_proc)
 
         loaded_datasets.append(ds)
         weights.append(entry.weight)
 
-    # If there is only a single dataset, return it directly.
-    if len(loaded_datasets) == 1:
-        return loaded_datasets[0]
+    # Resample each dataset according to its weight and concatenate.
+    resampled_datasets: list[Dataset] = []
+    for idx, (ds, weight) in enumerate(zip(loaded_datasets, weights)):
+        n = len(ds)
+        target_n = int(round(weight * n))
+        if target_n <= 0:
+            continue
 
-    # Normalise weights so they sum to 1.
-    total = sum(weights)
-    probabilities = [w / total for w in weights]
+        ds_seed = seed + idx
+        resampled = resample_to_size(ds, target_n, ds_seed)
+        resampled_datasets.append(resampled)
 
-    logger.info(
-        "Interleaving %d datasets with probabilities %s",
-        len(loaded_datasets),
-        probabilities,
-    )
-    return interleave_datasets(loaded_datasets, probabilities=probabilities)
+    if not resampled_datasets:
+        raise ValueError(
+            "No rows left after applying data.datasets[].weight. Check your weights and filters."
+        )
+
+    if len(resampled_datasets) == 1:
+        mixed = resampled_datasets[0]
+    else:
+        mixed = concatenate_datasets(resampled_datasets)
+
+    mixed = mixed.shuffle(seed=seed)
+    return mixed

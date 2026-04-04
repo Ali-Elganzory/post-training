@@ -203,15 +203,16 @@ The data pipeline is modularized into four distinct stages.
 
 #### A. Dataset registry & mixing
 
-Define multiple datasets in `data.datasets`. The loader automatically interleaves them based on the `weight` parameter (normalized automatically).
+Define multiple datasets in `data.datasets`. Each dataset is loaded, transformed, and filtered, then its size is scaled by the `weight` parameter before all datasets are concatenated and shuffled using `data.seed`.
 
 ```yaml
 data:
+  seed: 42
   datasets:
     - name: "my_dataset"
       path: "org/dataset"
       split: "train"
-      weight: 1.0  # Mixing weight (normalized automatically)
+      weight: 1.0  # >= 0; scaling factor applied after transforms/filters
 ```
 
 #### B. Data transformations
@@ -221,6 +222,11 @@ Raw datasets often come in varying formats. Transforms normalize them into a sta
 - **Config**: `transform: "transform_name"` (in the dataset entry)
 - **Registry**: `src/post_training/data/transforms.py`
 - **Customization**: decorate a function with `@register_transform("name")` to add your own logic
+
+> [!IMPORTANT]
+> **SFT column behavior**
+> - When `method: "sft"` and a per-dataset `transform` is configured, the transform is expected to return a `messages` field. After applying the transform, all original columns are dropped and only the transform outputs (typically `messages`) are kept.
+> - When `method: "sft"` and no `transform` is configured, the loader drops all columns except `messages`. Datasets used for SFT without a custom transform must therefore already expose a `messages` column.
 
 Example (normalize raw fields into `messages`):
 

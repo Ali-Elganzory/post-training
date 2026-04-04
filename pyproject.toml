@@ -3,7 +3,7 @@ name = "post-training"
 version = "0.1.0"
 description = "A modular post-training framework for LLMs (SFT, DPO)"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 # Minimal deps for job submission (scripts/submit.py).
 # Training deps live in [project.optional-dependencies.trl].
 dependencies = [
@@ -17,37 +17,56 @@ dependencies = [
 
 [project.optional-dependencies]
 trl = [
-    "torch==2.9.1+cu126",
+    "torch",
     "trl",
     "deepspeed",
     "transformers",
-    "datasets>4.5.0",
+    "datasets",
     "accelerate",
     "kernels",
-    "flash_attn",
+    "liger-kernel",
+    "flash_attn_3",
     "liger-kernel",
     "tensorboard",
+    # "xielu",
 ]
 flash-attn-2 = ["flash-attn"]
-dev = ["pre-commit"]
-
-[tool.uv]
-extra-index-url = ["https://download.pytorch.org/whl/cu126"]
-index-strategy = "unsafe-best-match"
-environments = [
-    "sys_platform == 'linux' and platform_machine == 'x86_64'"
-]
+dev = ["pre-commit", "jupyter", "matplotlib"]
 
 [tool.uv.sources]
-flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3%2Bcu126torch2.9-cp312-cp312-linux_x86_64.whl" }
+torch = { index = "pytorch-cuda" }
+xielu = { git = "https://github.com/nickjbrowning/XIELU" }
+flash-attn = [
+    { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3+cu130torch2.10-cp314-cp314-linux_aarch64.whl", marker = "platform_machine == 'aarch64' and python_version == '3.14'" },
+    { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3+cu130torch2.10-cp314-cp314-linux_x86_64.whl", marker = "platform_machine == 'x86_64' and python_version == '3.14'" },
+]
+flash_attn_3 = [
+    { url = "https://github.com/windreamer/flash-attention3-wheels/releases/download/2026.02.12-d57f6d8/flash_attn_3-3.0.0+20260212.cu130torch2100cxx11abitrue.c4d8b0-cp39-abi3-linux_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/windreamer/flash-attention3-wheels/releases/download/2026.02.12-d57f6d8/flash_attn_3-3.0.0+20260212.cu130torch2100cxx11abitrue.c4d8b0-cp39-abi3-linux_x86_64.whl", marker = "platform_machine == 'x86_64'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv]
+override-dependencies = ["nvidia-cublas==13.0.2.14"]
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.extra-build-dependencies]
+xielu = ["cmake", "numpy", { requirement = "torch", match-runtime = true }]
 
 [tool.black]
 line-length = 100
-target-version = ["py312"]
+target-version = ["py314"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -55,5 +74,3 @@ ignore = ["E501", "E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["post_training"]
-
-

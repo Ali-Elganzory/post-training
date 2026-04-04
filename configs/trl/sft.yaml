@@ -21,14 +21,8 @@ backend: trl
 run_name: null                               # auto-generated from model + datasets if null
 offline: true
 
-# Container (remove or set image: null for bare-metal)
-container:
-  image: /e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals/trl-jupiter.sif
-  bind_mounts:
-    - /e/project1/jureap59/raj3:/e/project1/jureap59/raj3
-    - /e/scratch/jureap59/raj3:/e/scratch/jureap59/raj3
-    - /e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals:/e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals
-  env_file: env/jupiter.env
+# -- Container ---------------------------------------------------------------
+container: null                              # null = bare-metal
 
 # -- Model -------------------------------------------------------------------
 model:
@@ -42,39 +36,43 @@ training:
   num_training_samples: null                 # If set: max_steps = ceil(num_samples / effective_batch_size)
   num_training_tokens: null                  # Only valid when sft.packing=true (max_steps = ceil(tokens / (effective_batch_size * sft.max_seq_length)))
 
-  learning_rate: 2.0e-5
-  effective_batch_size: 32                   # per_device * grad_accum * world_size
-  per_device_train_batch_size: 8
+  learning_rate: 8.0e-5
+  lr_scheduler_type: "linear"
+  lr_scheduler_kwargs: null
   warmup_ratio: 0.03
-  lr_scheduler_type: "cosine_with_min_lr"
-  lr_scheduler_kwargs:
-    min_lr_rate: 0.1
+  weight_decay: 0.0
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  effective_batch_size: 32                   # per_device * grad_accum * world_size
+  per_device_train_batch_size: 2
   gradient_checkpointing: true
+  use_liger_kernel: true
   bf16: true
   seed: 42
-  use_liger_kernel: true
 
 # -- SFT method parameters ---------------------------------------------------
 sft:
-  max_seq_length: 4096
+  max_seq_length: 32768
   packing: true
 
 # -- Checkpointing -----------------------------------------------------------
 checkpointing:
   save_steps: 200
   save_total_limit: 2                        # Full checkpoints to keep
-  inference_checkpoint_steps: 157            # Minimal inference model interval (set to null to disable)
+  inference_checkpoint_steps: 200            # Minimal inference model interval (set to null to disable)
   inference_checkpoint_path: "inference_checkpoints"   # Relative to run dir
 
 # -- Data mix ----------------------------------------------------------------
 data:
   chat_template: "olmo3"                     # Name from chat template registry
   num_proc: null                             # null = auto-detect, capped at 32
+  seed: 42                                   # RNG seed for dataset shuffling/resampling
   datasets:
-    - name: "nemotron_pt_v2"
-      path: "nvidia/Nemotron-Post-Training-Dataset-v2"
-      split: "stem"
-      weight: 1.0
+    - name: "orca"
+      path: "openeurollm/orca-agentinstruct-1M-v1-decontaminated"
+      subset: "default"
+      split: "fermi"
+      weight: 1.0                            # >= 0; scales this dataset's size after transforms/filters
       transform: null                        # null = already conversational
 
 # -- DeepSpeed ---------------------------------------------------------------
@@ -101,6 +99,7 @@ logging:
 
 # -- SLURM -------------------------------------------------------------------
 slurm:
+  account: "reformo"
   partition: "booster"
   num_nodes: 1
   gpus_per_node: 4

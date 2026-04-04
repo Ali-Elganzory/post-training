@@ -80,14 +80,26 @@ class TRLBackend(Backend):
                 f"Supported methods: {', '.join(_SUPPORTED_METHODS)}"
             )
 
-        # Container validation (only when container.image is set)
-        if config.container.image:
+        # Container validation (only when container is set)
+        if config.container is not None:
             if not config.container.bind_mounts:
                 raise ValueError(
                     "container.bind_mounts must be non-empty when container.image is set."
                 )
             if not config.container.env_file:
                 raise ValueError("container.env_file must be set when container.image is set.")
+
+        # Validate data mixing weights.
+        total_weight = 0.0
+        for entry in config.data.datasets:
+            if entry.weight < 0.0:
+                raise ValueError(
+                    f"data.datasets[].weight must be non-negative, got {entry.weight} "
+                    f"for dataset '{entry.name}'."
+                )
+            total_weight += entry.weight
+        if config.data.datasets and total_weight <= 0.0:
+            raise ValueError("Sum of data.datasets[].weight must be > 0.")
 
         t = config.training
 
@@ -154,7 +166,7 @@ class TRLBackend(Backend):
         return ["checkpoints", "inference_checkpoints"]
 
     def render_slurm_script(self, config, run_dir, frozen_config_path):
-        if config.container.image:
+        if config.container is not None:
             from post_training.slurm.launcher import render_trl_container_slurm_script
 
             return render_trl_container_slurm_script(config, run_dir, frozen_config_path)

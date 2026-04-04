@@ -62,12 +62,13 @@ checkpointing:
 data:
   chat_template: "olmo3"                     # Name from chat template registry
   num_proc: null                             # null = auto-detect, capped at 32
+  seed: 42                                   # RNG seed for dataset shuffling/resampling
   datasets:
     - name: "smoltalk2_preference"
       path: "HuggingFaceTB/smoltalk2"
       subset: "Preference"
       split: "llama_3.1_tulu_3_8b_preference_mixture_no_think"
-      weight: 1.0
+      weight: 1.0                            # >= 0; scales this dataset's size after transforms/filters
       transform: null                        # null = already "chosen" / "rejected" columns
 
 # -- DeepSpeed ---------------------------------------------------------------
